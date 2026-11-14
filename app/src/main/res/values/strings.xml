@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Adwa Cyber</string>
+    <string name="cd_app_logo">Adwa Cyber shield logo</string>
+    <string name="cd_hero_banner">Adwa Cyber compliance resilience banner</string>
+    <string name="cd_language_toggle">Toggle English and Amharic language</string>
+    <string name="cd_theme_toggle">Toggle light and dark theme</string>
+    <string name="cd_nav_menu">Open navigation drawer</string>
+    <string name="error_network_generic">Unable to complete operation. Please try again.</string>
+</resources>

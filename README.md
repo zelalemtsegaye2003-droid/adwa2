@@ -1,11 +1,10 @@
-<div align="center">
+# Adwa Cyber — Android Application
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+Native Kotlin & Jetpack Compose (Material 3) Android implementation of the **Adwa Cyber** Ethiopian Cybersecurity Compliance, CERT-as-a-Service SOC, Multilingual Awareness, and Track C Gated Expansion platform.
 
-  <h1>Built with AI Studio</h2>
-
-  <p>The fastest path from prompt to production with Gemini.</p>
-
-  <a href="https://aistudio.google.com/apps">Start building</a>
-
-</div>
+## Core Modules
+- **Auth, RBAC & MFA**: 5 tenant-isolated roles (`SUPER_ADMIN`, `ORG_ADMIN`, `COMPLIANCE_OFFICER`, `AUDITOR`, `VIEWER`), 6 quick-demo accounts, captcha check, password reset, team provisioning, immutable audit log, and RFC 6238 TOTP MFA + single-use backup codes.
+- **Compliance Engine (Phase 1)**: 77 bilingual (English & አማርኛ) machine-readable obligations across **PD-1321** (47 rules, Proclamation 1321/2024) and **NBE-IT** (30 rules, NBE Directive SBB/83/2022 & Procl. 1426/2026), interactive Scan Wizard with draft autosave & N/A justification validation, Risk-Ranked Remediation Plans, Procl. 1426/2026 SLA tracking, SHA-256 Evidence Library via Android SAF (`OpenDocument`), and native `PdfDocument` Executive Report export.
+- **Security Operations Centre (Phase 2)**: NIST SP 800-61 incident lifecycle, Ethio-CERT national feed ingestion & anonymised upward reporting, RQ3 detection-to-notification latency tracking (<=15 min target), MTTA/MTTC/MTTR metrics, sector predictive threat forecasting, and hybrid `HUB` / `P2P` threat-intel sharing.
+- **Awareness Platform & Public `/learn` Portal (Phase 3 / Track B)**: Cohort & guardian consent management across 5 Addis Ababa pilot schools, 16-item fixed pre/post assessment with Paired-t & One-Way ANOVA statistical evaluation (RQ2), 15 bilingual curriculum modules, and 6 on-device AI Enhancement Lab tools (Password Strength Checker, Phishing Radar, Sextortion Response Trainer, Digital Footprint Visualiser, Content Flagging Exercise, and Cybercrime Reporting Guide).
+- **Track C Gated Expansion (Phases 4–5)**: Gate Board with sealed artefact prerequisites & PDF Dossier export, ACFS Continental Federation Register (13 preconditions across 4 domains), and double-gated CII Operator Monitoring (`MOU` + `INSA` authorisation).

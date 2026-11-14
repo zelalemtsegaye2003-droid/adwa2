@@ -12,9 +12,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -35,6 +37,9 @@ import com.example.i18n.AppStrings
 import com.example.model.Lang
 import com.example.ui.theme.AmberAccent
 import com.example.ui.theme.CrimsonError
+import com.example.ui.theme.CyberCyan
+import com.example.ui.theme.CyberMonoFamily
+import com.example.ui.theme.CyberNeonEmerald
 import com.example.ui.theme.EmeraldPrimary
 import com.example.ui.theme.TealSecondary
 import com.example.ui.theme.YellowMedium
@@ -51,6 +56,80 @@ private val dateTimeFmt = SimpleDateFormat("dd MMM HH:mm", Locale.US)
 
 fun formatDate(epochMs: Long?): String = epochMs?.let { shortDateFmt.format(Date(it)) } ?: "—"
 fun formatDateTime(epochMs: Long?): String = epochMs?.let { dateTimeFmt.format(Date(it)) } ?: "—"
+
+@Composable
+fun CyberBackdrop(
+    isDark: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val bgColor = MaterialTheme.colorScheme.background
+    val gridColor = if (isDark) CyberCyan.copy(alpha = 0.055f) else TealSecondary.copy(alpha = 0.05f)
+    val emeraldGlow = if (isDark) CyberNeonEmerald.copy(alpha = 0.14f) else EmeraldPrimary.copy(alpha = 0.08f)
+    val cyanGlow = if (isDark) CyberCyan.copy(alpha = 0.10f) else TealSecondary.copy(alpha = 0.06f)
+    val reticleColor = if (isDark) CyberNeonEmerald.copy(alpha = 0.09f) else EmeraldPrimary.copy(alpha = 0.07f)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(bgColor)
+            .drawBehind {
+                // Soft top-right SOC radar glow
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(emeraldGlow, Color.Transparent),
+                        center = Offset(size.width * 0.92f, size.height * 0.08f),
+                        radius = size.maxDimension * 0.55f,
+                    ),
+                    radius = size.maxDimension * 0.55f,
+                    center = Offset(size.width * 0.92f, size.height * 0.08f),
+                )
+                // Soft bottom-left cyan network glow
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(cyanGlow, Color.Transparent),
+                        center = Offset(size.width * 0.08f, size.height * 0.86f),
+                        radius = size.maxDimension * 0.50f,
+                    ),
+                    radius = size.maxDimension * 0.50f,
+                    center = Offset(size.width * 0.08f, size.height * 0.86f),
+                )
+                // Precision tactical coordinate grid
+                val step = 36.dp.toPx()
+                var x = step
+                while (x < size.width) {
+                    drawLine(
+                        color = gridColor,
+                        start = Offset(x, 0f),
+                        end = Offset(x, size.height),
+                        strokeWidth = 1f,
+                    )
+                    x += step
+                }
+                var y = step
+                while (y < size.height) {
+                    drawLine(
+                        color = gridColor,
+                        start = Offset(0f, y),
+                        end = Offset(size.width, y),
+                        strokeWidth = 1f,
+                    )
+                    y += step
+                }
+                // Subtle corner radar range rings
+                val radarCenter = Offset(size.width * 0.94f, size.height * 0.07f)
+                listOf(90.dp.toPx(), 165.dp.toPx(), 240.dp.toPx()).forEach { r ->
+                    drawCircle(
+                        color = reticleColor,
+                        radius = r,
+                        center = radarCenter,
+                        style = Stroke(width = 1.dp.toPx()),
+                    )
+                }
+            },
+        content = content,
+    )
+}
 
 @Composable
 fun ScoreRing(
@@ -73,6 +152,14 @@ fun ScoreRing(
             .semantics { contentDescription = "Score ${clamped.roundToInt()} percent" },
     ) {
         Canvas(modifier = Modifier.fillMaxSize().padding(strokeWidth / 2)) {
+            // Subtle cyber halo glow behind progress arc
+            drawArc(
+                color = activeColor.copy(alpha = 0.18f),
+                startAngle = -90f,
+                sweepAngle = (clamped / 100f) * 360f,
+                useCenter = false,
+                style = Stroke(width = (strokeWidth + 4.dp).toPx(), cap = StrokeCap.Round),
+            )
             drawArc(
                 color = trackColor,
                 startAngle = 0f,
@@ -91,6 +178,7 @@ fun ScoreRing(
         Text(
             text = "${clamped.roundToInt()}%",
             style = MaterialTheme.typography.titleMedium,
+            fontFamily = CyberMonoFamily,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -152,11 +240,26 @@ fun KpiCard(
 ) {
     Card(
         shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         modifier = modifier,
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    drawLine(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(accentColor.copy(alpha = 0.85f), CyberCyan.copy(alpha = 0.45f), Color.Transparent),
+                        ),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, 0f),
+                        strokeWidth = 2.5.dp.toPx(),
+                    )
+                }
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -182,6 +285,7 @@ fun KpiCard(
             Text(
                 text = value,
                 style = MaterialTheme.typography.headlineSmall,
+                fontFamily = CyberMonoFamily,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -209,14 +313,31 @@ fun SectionHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(34.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary),
+                        )
+                    ),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         if (action != null) {

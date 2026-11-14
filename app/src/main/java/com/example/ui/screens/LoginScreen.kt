@@ -65,19 +65,18 @@ fun LoginScreen(vm: AdwaViewModel) {
     LazyColumn(
         contentPadding = PaddingValues(bottom = 32.dp),
         modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .fillMaxSize(),
     ) {
         // Hero Banner
         item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(210.dp),
+                    .height(220.dp),
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.img_hero_banner),
-                    contentDescription = "Adwa Cyber Shield Banner",
+                    painter = painterResource(id = R.drawable.img_cyber_hero_banner),
+                    contentDescription = "Adwa Cyber Command Backdrop",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -87,8 +86,8 @@ fun LoginScreen(vm: AdwaViewModel) {
                         .background(
                             Brush.verticalGradient(
                                 listOf(
-                                    Color.Black.copy(alpha = 0.25f),
-                                    Color(0xFF044E38).copy(alpha = 0.88f),
+                                    Color(0xFF040911).copy(alpha = 0.45f),
+                                    Color(0xFF052E26).copy(alpha = 0.90f),
                                 )
                             )
                         ),

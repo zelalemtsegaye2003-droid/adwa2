@@ -1,11 +1,15 @@
 package com.example.data
 
 import android.content.Context
+import com.example.data.local.AdwaDatabase
+import com.example.data.local.ComplianceSnapshotEntity
+import com.example.data.local.RiskRegisterRepository
 import com.example.domain.*
 import com.example.model.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,9 +24,31 @@ class AdwaRepository(context: Context) {
     private val appContext = context.applicationContext
     private val stateFile = File(appContext.filesDir, "adwa_state_v1.json")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val db = AdwaDatabase.getInstance(appContext)
+    val riskRepository = RiskRegisterRepository(db.riskRegisterDao(), db.complianceDataDao())
 
     private val _state = MutableStateFlow(loadOrSeed())
     val state: StateFlow<AdwaState> = _state.asStateFlow()
+
+    init {
+        scope.launch {
+            val initial = _state.value
+            riskRepository.seedIfEmpty(
+                risks = initial.riskRegister,
+                scans = initial.scans,
+                monitors = initial.controlMonitors,
+            )
+            riskRepository.allRisks.collect { roomRisks ->
+                if (_state.value.riskRegister != roomRisks) {
+                    updateAndPersist { st -> st.copy(riskRegister = roomRisks) }
+                }
+            }
+        }
+    }
+
+    fun observeRiskRegister(): Flow<List<RiskRegisterEntry>> = riskRepository.allRisks
+
+    fun observeComplianceSnapshots(): Flow<List<ComplianceSnapshotEntity>> = riskRepository.complianceSnapshots
 
     private fun uid(prefix: String): String = "${prefix}_${UUID.randomUUID().toString().take(8)}"
 
@@ -41,6 +67,13 @@ class AdwaRepository(context: Context) {
         _state.value = fresh
         scope.launch {
             runCatching { stateFile.writeText(serialize(fresh).toString()) }
+            runCatching {
+                riskRepository.replaceAll(
+                    risks = fresh.riskRegister,
+                    scans = fresh.scans,
+                    monitors = fresh.controlMonitors,
+                )
+            }
         }
     }
 
@@ -263,6 +296,7 @@ class AdwaRepository(context: Context) {
                 draftNotes = st.draftNotes - scanId,
             )
         }
+        scope.launch { runCatching { riskRepository.deleteSnapshot(scanId) } }
     }
 
     fun submitDraftScan(scanId: String): ComplianceScan? {
@@ -300,6 +334,7 @@ class AdwaRepository(context: Context) {
                 draftNotes = cur.draftNotes - scanId,
             )
         }
+        scope.launch { runCatching { riskRepository.saveSnapshot(completed) } }
         return completed
     }
 
@@ -816,6 +851,124 @@ class AdwaRepository(context: Context) {
         return null
     }
 
+    // ── Enterprise GRC: CCM, Risk Register, Trust Center, HRS & Playbooks ─────
+
+    fun saveMonitorSweep(updatedMonitors: List<ControlMonitor>, run: MonitorCheckRun) {
+        updateAndPersist { st ->
+            st.copy(
+                controlMonitors = updatedMonitors,
+                monitorRuns = (listOf(run) + st.monitorRuns).take(30),
+            )
+        }
+        scope.launch { runCatching { riskRepository.saveMonitors(updatedMonitors) } }
+    }
+
+    fun addRiskEntry(
+        titleEn: String,
+        description: String,
+        frameworks: List<String>,
+        linkedRuleCodes: List<String>,
+        likelihood: Int,
+        impact: Int,
+        treatment: String,
+        ownerName: String,
+        sourceMonitorId: String? = null,
+    ): RiskRegisterEntry {
+        val nextNum = _state.value.riskRegister.size + 1
+        val entry = RiskRegisterEntry(
+            id = uid("risk"),
+            code = "RSK-2026-%02d".format(nextNum),
+            titleEn = titleEn.trim(),
+            titleAm = titleEn.trim(),
+            description = description.trim(),
+            frameworks = frameworks.ifEmpty { listOf("PD-1321") },
+            linkedRuleCodes = linkedRuleCodes,
+            likelihood = likelihood.coerceIn(1, 5),
+            impact = impact.coerceIn(1, 5),
+            residualScore = likelihood.coerceIn(1, 5) * impact.coerceIn(1, 5),
+            treatment = treatment,
+            status = "OPEN",
+            ownerName = ownerName,
+            dueAtEpochMs = System.currentTimeMillis() + 14L * 24 * 60 * 60 * 1000,
+            sourceMonitorId = sourceMonitorId,
+        )
+        updateAndPersist { st ->
+            st.copy(riskRegister = listOf(entry) + st.riskRegister)
+        }
+        scope.launch { runCatching { riskRepository.upsertRisk(entry) } }
+        return entry
+    }
+
+    fun updateRiskStatus(riskId: String, newStatus: String, treatment: String? = null) {
+        updateAndPersist { st ->
+            st.copy(
+                riskRegister = st.riskRegister.map { r ->
+                    if (r.id != riskId) r
+                    else r.copy(
+                        status = newStatus,
+                        treatment = treatment ?: r.treatment,
+                        residualScore = if (newStatus == "MITIGATED") maxOf(1, r.residualScore / 2) else r.residualScore,
+                    )
+                }
+            )
+        }
+        scope.launch { runCatching { riskRepository.updateRiskStatus(riskId, newStatus, treatment) } }
+    }
+
+    fun deleteRiskEntry(riskId: String) {
+        updateAndPersist { st ->
+            st.copy(riskRegister = st.riskRegister.filterNot { it.id == riskId })
+        }
+        scope.launch { runCatching { riskRepository.deleteRiskById(riskId) } }
+    }
+
+    fun updateTrustCenterConfig(transform: (TrustCenterConfig) -> TrustCenterConfig) {
+        updateAndPersist { st ->
+            val current = st.trustCenter ?: SeedData.buildInitialState().trustCenter!!
+            val updated = transform(current)
+            st.copy(trustCenter = updated)
+        }
+    }
+
+    fun publishTrustCenterSnapshot(summaryPayload: String) {
+        val hash = RulesEngine.sha256Hex(summaryPayload.toByteArray())
+        val now = System.currentTimeMillis()
+        updateTrustCenterConfig { cfg ->
+            cfg.copy(lastPublishedAtEpochMs = now, publishedSha256 = hash)
+        }
+    }
+
+    fun toggleIncidentPlaybookStep(incidentId: String, stepId: String) {
+        updateAndPersist { st ->
+            val current = st.incidentPlaybookChecks[incidentId].orEmpty()
+            val updated = if (stepId in current) current - stepId else current + stepId
+            st.copy(incidentPlaybookChecks = st.incidentPlaybookChecks + (incidentId to updated))
+        }
+    }
+
+    fun saveIncidentAiNote(incidentId: String, note: String) {
+        updateAndPersist { st ->
+            st.copy(incidentAiNotes = st.incidentAiNotes + (incidentId to note))
+        }
+    }
+
+    fun launchAwarenessCampaign(titleEn: String, targetGroup: String, sentCount: Int, reportedCount: Int, clickedCount: Int): AwarenessCampaign {
+        val camp = AwarenessCampaign(
+            id = uid("camp"),
+            titleEn = titleEn.trim(),
+            titleAm = titleEn.trim(),
+            targetGroup = targetGroup,
+            sentCount = sentCount.coerceAtLeast(1),
+            reportedCount = reportedCount.coerceIn(0, sentCount.coerceAtLeast(1)),
+            clickedCount = clickedCount.coerceIn(0, sentCount.coerceAtLeast(1)),
+            createdAtEpochMs = System.currentTimeMillis(),
+        )
+        updateAndPersist { st ->
+            st.copy(awarenessCampaigns = listOf(camp) + st.awarenessCampaigns)
+        }
+        return camp
+    }
+
     // ── JSON Persistence ──────────────────────────────────────────────────────
 
     private fun loadOrSeed(): AdwaState {
@@ -1106,6 +1259,65 @@ class AdwaRepository(context: Context) {
                 })
             }
         })
+        put("controlMonitors", JSONArray().apply {
+            s.controlMonitors.forEach { m ->
+                put(JSONObject().apply {
+                    put("id", m.id); put("code", m.code); put("titleEn", m.titleEn); put("titleAm", m.titleAm)
+                    put("category", m.category); put("sourceType", m.sourceType); put("targetHint", m.targetHint)
+                    put("mappedRuleCodes", JSONArray(m.mappedRuleCodes)); put("status", m.status)
+                    put("detail", m.detail); put("lastCheckedAtEpochMs", m.lastCheckedAtEpochMs ?: JSONObject.NULL)
+                })
+            }
+        })
+        put("monitorRuns", JSONArray().apply {
+            s.monitorRuns.forEach { r ->
+                put(JSONObject().apply {
+                    put("id", r.id); put("monitorCount", r.monitorCount); put("passed", r.passed)
+                    put("warned", r.warned); put("failed", r.failed); put("probeUrl", r.probeUrl)
+                    put("durationMs", r.durationMs); put("summary", r.summary); put("executedAtEpochMs", r.executedAtEpochMs)
+                })
+            }
+        })
+        put("riskRegister", JSONArray().apply {
+            s.riskRegister.forEach { rk ->
+                put(JSONObject().apply {
+                    put("id", rk.id); put("code", rk.code); put("titleEn", rk.titleEn); put("titleAm", rk.titleAm)
+                    put("description", rk.description); put("frameworks", JSONArray(rk.frameworks))
+                    put("linkedRuleCodes", JSONArray(rk.linkedRuleCodes)); put("likelihood", rk.likelihood)
+                    put("impact", rk.impact); put("residualScore", rk.residualScore); put("treatment", rk.treatment)
+                    put("status", rk.status); put("ownerName", rk.ownerName)
+                    put("dueAtEpochMs", rk.dueAtEpochMs ?: JSONObject.NULL)
+                    put("sourceMonitorId", rk.sourceMonitorId ?: JSONObject.NULL)
+                })
+            }
+        })
+        s.trustCenter?.let { tc ->
+            put("trustCenter", JSONObject().apply {
+                put("organizationId", tc.organizationId); put("publicTitle", tc.publicTitle)
+                put("securityContactEmail", tc.securityContactEmail); put("ndaRequired", tc.ndaRequired)
+                put("showComplianceScores", tc.showComplianceScores); put("showControlMonitors", tc.showControlMonitors)
+                put("showEthioCertStatus", tc.showEthioCertStatus); put("showSubprocessors", tc.showSubprocessors)
+                put("subprocessors", JSONArray(tc.subprocessors))
+                put("lastPublishedAtEpochMs", tc.lastPublishedAtEpochMs ?: JSONObject.NULL)
+                put("publishedSha256", tc.publishedSha256 ?: JSONObject.NULL)
+            })
+        }
+        put("awarenessCampaigns", JSONArray().apply {
+            s.awarenessCampaigns.forEach { c ->
+                put(JSONObject().apply {
+                    put("id", c.id); put("titleEn", c.titleEn); put("titleAm", c.titleAm)
+                    put("targetGroup", c.targetGroup); put("sentCount", c.sentCount)
+                    put("reportedCount", c.reportedCount); put("clickedCount", c.clickedCount)
+                    put("createdAtEpochMs", c.createdAtEpochMs)
+                })
+            }
+        })
+        put("incidentPlaybookChecks", JSONObject().apply {
+            s.incidentPlaybookChecks.forEach { (k, v) -> put(k, JSONArray(v)) }
+        })
+        put("incidentAiNotes", JSONObject().apply {
+            s.incidentAiNotes.forEach { (k, v) -> put(k, v) }
+        })
     }
 
     private fun deserialize(j: JSONObject): AdwaState {
@@ -1249,6 +1461,47 @@ class AdwaRepository(context: Context) {
                         sy.getString("category"), sy.getString("criticality"), sy.getString("readiness"))
                 })
         }
-        return AdwaState(orgs, users, authEvents, scans, draftAnswers, draftNotes, docs, links, incidents, indicators, syncRuns, schools, classes, learners, pings, gates, acfsItems, acfsDec, ciiOps)
+        val fallbackSeed by lazy { SeedData.buildInitialState() }
+        val controlMonitors = j.optJSONArray("controlMonitors")?.mapObj { m ->
+            ControlMonitor(m.getString("id"), m.getString("code"), m.getString("titleEn"), m.getString("titleAm"),
+                m.getString("category"), m.getString("sourceType"), m.getString("targetHint"),
+                m.getJSONArray("mappedRuleCodes").strList(), m.getString("status"), m.getString("detail"),
+                m.optLng("lastCheckedAtEpochMs"))
+        } ?: fallbackSeed.controlMonitors
+        val monitorRuns = j.optJSONArray("monitorRuns")?.mapObj { r ->
+            MonitorCheckRun(r.getString("id"), r.getInt("monitorCount"), r.getInt("passed"), r.getInt("warned"),
+                r.getInt("failed"), r.getString("probeUrl"), r.getLong("durationMs"), r.getString("summary"),
+                r.getLong("executedAtEpochMs"))
+        } ?: emptyList()
+        val riskRegister = j.optJSONArray("riskRegister")?.mapObj { rk ->
+            RiskRegisterEntry(rk.getString("id"), rk.getString("code"), rk.getString("titleEn"), rk.getString("titleAm"),
+                rk.getString("description"), rk.getJSONArray("frameworks").strList(),
+                rk.getJSONArray("linkedRuleCodes").strList(), rk.getInt("likelihood"), rk.getInt("impact"),
+                rk.getInt("residualScore"), rk.getString("treatment"), rk.getString("status"), rk.getString("ownerName"),
+                rk.optLng("dueAtEpochMs"), rk.optStr("sourceMonitorId"))
+        } ?: fallbackSeed.riskRegister
+        val trustCenter = j.optJSONObject("trustCenter")?.let { tc ->
+            TrustCenterConfig(tc.getString("organizationId"), tc.getString("publicTitle"), tc.getString("securityContactEmail"),
+                tc.getBoolean("ndaRequired"), tc.getBoolean("showComplianceScores"), tc.getBoolean("showControlMonitors"),
+                tc.getBoolean("showEthioCertStatus"), tc.getBoolean("showSubprocessors"),
+                tc.getJSONArray("subprocessors").strList(), tc.optLng("lastPublishedAtEpochMs"), tc.optStr("publishedSha256"))
+        } ?: fallbackSeed.trustCenter
+        val campaigns = j.optJSONArray("awarenessCampaigns")?.mapObj { c ->
+            AwarenessCampaign(c.getString("id"), c.getString("titleEn"), c.getString("titleAm"),
+                c.getString("targetGroup"), c.getInt("sentCount"), c.getInt("reportedCount"), c.getInt("clickedCount"),
+                c.getLong("createdAtEpochMs"))
+        } ?: fallbackSeed.awarenessCampaigns
+        val pbChecks = j.optJSONObject("incidentPlaybookChecks")?.let { obj ->
+            buildMap { obj.keys().forEach { k -> put(k, obj.getJSONArray(k).strList()) } }
+        } ?: fallbackSeed.incidentPlaybookChecks
+        val aiNotes = j.optJSONObject("incidentAiNotes")?.let { obj ->
+            buildMap { obj.keys().forEach { k -> put(k, obj.getString(k)) } }
+        } ?: emptyMap()
+
+        return AdwaState(
+            orgs, users, authEvents, scans, draftAnswers, draftNotes, docs, links, incidents, indicators, syncRuns,
+            schools, classes, learners, pings, gates, acfsItems, acfsDec, ciiOps,
+            controlMonitors, monitorRuns, riskRegister, trustCenter, campaigns, pbChecks, aiNotes,
+        )
     }
 }

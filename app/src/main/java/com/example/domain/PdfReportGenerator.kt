@@ -193,6 +193,99 @@ object PdfReportGenerator {
         return file
     }
 
+    fun exportTrustCenterDossierPdf(
+        context: Context,
+        config: com.example.model.TrustCenterConfig,
+        avgScore: Double,
+        monitors: List<com.example.model.ControlMonitor>,
+        openRisks: Int,
+        activeIncidents: Int,
+    ): File {
+        val doc = PdfDocument()
+        val pageWidth = 595
+        val pageHeight = 842
+        var pageNum = 1
+        var page = doc.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create())
+        var canvas = page.canvas
+
+        val titlePaint = Paint().apply {
+            color = Color.rgb(4, 120, 87)
+            textSize = 18f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val h2Paint = Paint().apply {
+            color = Color.rgb(15, 23, 42)
+            textSize = 12.5f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val bodyPaint = Paint().apply {
+            color = Color.rgb(51, 65, 85)
+            textSize = 10f
+            isAntiAlias = true
+        }
+        val mutedPaint = Paint().apply {
+            color = Color.rgb(100, 116, 139)
+            textSize = 9f
+            isAntiAlias = true
+        }
+
+        var y = 44f
+        fun nextPageIfNeeded(needed: Float) {
+            if (y + needed > pageHeight - 40f) {
+                doc.finishPage(page)
+                pageNum++
+                page = doc.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create())
+                canvas = page.canvas
+                y = 44f
+            }
+        }
+
+        canvas.drawText("Adwa Cyber — Shareable Trust Center Dossier", 36f, y, titlePaint); y += 18f
+        canvas.drawText(config.publicTitle.take(80), 36f, y, h2Paint); y += 15f
+        canvas.drawText("Security Contact: ${config.securityContactEmail} · Access: ${if (config.ndaRequired) "NDA Gated" else "Public Verification"}", 36f, y, mutedPaint); y += 14f
+        canvas.drawText("Generated: ${dateFmt.format(Date())} · Seal: ${config.publishedSha256?.take(24) ?: "LIVE"}", 36f, y, mutedPaint); y += 22f
+
+        if (config.showComplianceScores) {
+            canvas.drawText("1. Compliance Posture & Risk Summary", 36f, y, h2Paint); y += 15f
+            canvas.drawText("• Verified Compliance Score: ${String.format("%.1f", avgScore)}% (PD-1321 & NBE-IT)", 44f, y, bodyPaint); y += 14f
+            canvas.drawText("• Open Risk Register Items: $openRisks", 44f, y, bodyPaint); y += 18f
+        }
+
+        if (config.showControlMonitors) {
+            canvas.drawText("2. Continuous Control Monitoring (${monitors.count { it.status == "PASS" }}/${monitors.size} Passing)", 36f, y, h2Paint); y += 15f
+            monitors.forEach { m ->
+                nextPageIfNeeded(28f)
+                canvas.drawText("• [${m.code}] ${m.titleEn} — ${m.status}", 44f, y, bodyPaint); y += 13f
+                canvas.drawText("  ${m.detail}".take(96), 48f, y, mutedPaint); y += 14f
+            }
+            y += 8f
+        }
+
+        if (config.showEthioCertStatus) {
+            nextPageIfNeeded(34f)
+            canvas.drawText("3. SOC & Ethio-CERT Readiness", 36f, y, h2Paint); y += 15f
+            canvas.drawText("• Active Unclosed Incidents: $activeIncidents · 24/7 NIST SP 800-61 Triage Enabled", 44f, y, bodyPaint); y += 18f
+        }
+
+        if (config.showSubprocessors && config.subprocessors.isNotEmpty()) {
+            nextPageIfNeeded(36f)
+            canvas.drawText("4. Verified Subprocessors & Hosting", 36f, y, h2Paint); y += 15f
+            config.subprocessors.forEach { sub ->
+                nextPageIfNeeded(16f)
+                canvas.drawText("• $sub", 44f, y, bodyPaint); y += 14f
+            }
+        }
+
+        doc.finishPage(page)
+        val dir = File(context.cacheDir, "reports").apply { mkdirs() }
+        val file = File(dir, "adwa_trust_center_dossier.pdf")
+        FileOutputStream(file).use { doc.writeTo(it) }
+        doc.close()
+        return file
+    }
+
     fun sharePdf(context: Context, file: File, chooserTitle: String) {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {

@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +19,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.domain.EnterpriseEngines
 import com.example.domain.SocEngine
 import com.example.i18n.AppStrings
 import com.example.model.IncidentStatus
@@ -35,6 +38,7 @@ fun SocScreen(vm: AdwaViewModel) {
     var showCreateIncident by remember { mutableStateOf(false) }
     var showContributeIndicator by remember { mutableStateOf(false) }
     var noteIncidentId by remember { mutableStateOf<String?>(null) }
+    var expandedPlaybookIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     val incidents = vm.visibleIncidents()
     val indicators = vm.visibleIndicators()
@@ -177,6 +181,12 @@ fun SocScreen(vm: AdwaViewModel) {
                 items(incidents, key = { it.id }) { inc ->
                     val orgName = orgById[inc.organizationId]?.name ?: inc.organizationId
                     val nextStage = inc.status.next()
+                    val playbook = remember(inc.id, inc.category) { EnterpriseEngines.playbookForIncident(inc) }
+                    val completedSteps = data.incidentPlaybookChecks[inc.id].orEmpty()
+                    val aiNote = data.incidentAiNotes[inc.id]
+                    val isExpanded = inc.id in expandedPlaybookIds
+                    val isEnriching = ui.enrichingIncidentId == inc.id
+
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
@@ -202,8 +212,9 @@ fun SocScreen(vm: AdwaViewModel) {
                                 }",
                                 style = MaterialTheme.typography.labelSmall,
                             )
-                            if (canManageSoc) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                                if (canManageSoc) {
                                     if (inc.notifiedAtEpochMs == null) {
                                         Button(
                                             onClick = { vm.notifyIncidentOrg(inc.id) },
@@ -225,6 +236,89 @@ fun SocScreen(vm: AdwaViewModel) {
                                         modifier = Modifier.heightIn(min = 48.dp),
                                     ) {
                                         Text("Add Note")
+                                    }
+                                }
+                                FilterChip(
+                                    selected = isExpanded,
+                                    onClick = {
+                                        expandedPlaybookIds = if (isExpanded) expandedPlaybookIds - inc.id else expandedPlaybookIds + inc.id
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                    label = { Text("Playbook ${completedSteps.size}/${playbook.size}") },
+                                    modifier = Modifier.heightIn(min = 48.dp).testTag("soc_playbook_toggle_${inc.id}"),
+                                )
+                                OutlinedButton(
+                                    onClick = { vm.enrichIncidentWithGemini(inc.id) },
+                                    enabled = !isEnriching,
+                                    modifier = Modifier.heightIn(min = 48.dp).testTag("soc_ai_enrich_${inc.id}"),
+                                ) {
+                                    if (isEnriching) {
+                                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                    } else {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                    }
+                                    Text(if (isEnriching) "Enriching..." else "AI Enrich")
+                                }
+                            }
+
+                            AnimatedVisibility(visible = isExpanded) {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+                                    HorizontalDivider()
+                                    Text(
+                                        AppStrings.pick(
+                                            lang,
+                                            "NIST SP 800-61 & MITRE ATT&CK Playbook (${playbook.firstOrNull()?.mitreTactic ?: ""})",
+                                            "NIST SP 800-61 እና MITRE ATT&CK መመሪያ",
+                                        ),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    playbook.forEach { step ->
+                                        val isDone = step.id in completedSteps
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 48.dp)
+                                                .clickable { vm.togglePlaybookStep(inc.id, step.id) }
+                                                .testTag("playbook_step_${inc.id}_${step.id}"),
+                                        ) {
+                                            Checkbox(
+                                                checked = isDone,
+                                                onCheckedChange = { vm.togglePlaybookStep(inc.id, step.id) },
+                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    "${step.phase.labelEn} · ${step.mitreTactic}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                )
+                                                Text(
+                                                    if (lang == Lang.EN) step.titleEn else step.titleAm,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (!aiNote.isNullOrBlank()) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                                    shape = MaterialTheme.shapes.small,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(10.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                            Text("Gemini 3.8 Flash SOC Enrichment", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                        }
+                                        Text(aiNote, style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
                             }

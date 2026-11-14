@@ -483,3 +483,75 @@ data class CiiOperator(
     val authorizations: List<CiiAuthorization>,
     val systems: List<CiiSystem>,
 )
+
+// ── Enterprise GRC: CCM, Cross-Framework Risk Register, Trust Center & HRS ──
+
+data class ControlMonitor(
+    val id: String,
+    val code: String,
+    val titleEn: String,
+    val titleAm: String,
+    val category: String, // DEVICE | TRANSPORT | IDENTITY | EVIDENCE
+    val sourceType: String, // DEVICE_API | LIVE_TLS_PROBE | LOCAL_AUDIT
+    val targetHint: String,
+    val mappedRuleCodes: List<String>,
+    val status: String, // PASS | WARN | FAIL | UNVERIFIED
+    val detail: String,
+    val lastCheckedAtEpochMs: Long?,
+)
+
+data class MonitorCheckRun(
+    val id: String,
+    val monitorCount: Int,
+    val passed: Int,
+    val warned: Int,
+    val failed: Int,
+    val probeUrl: String,
+    val durationMs: Long,
+    val summary: String,
+    val executedAtEpochMs: Long,
+)
+
+data class RiskRegisterEntry(
+    val id: String,
+    val code: String,
+    val titleEn: String,
+    val titleAm: String,
+    val description: String,
+    val frameworks: List<String>,
+    val linkedRuleCodes: List<String>,
+    val likelihood: Int, // 1..5
+    val impact: Int, // 1..5
+    val residualScore: Int, // 1..25
+    val treatment: String, // MITIGATE | ACCEPT | TRANSFER
+    val status: String, // OPEN | IN_PROGRESS | MITIGATED | ACCEPTED
+    val ownerName: String,
+    val dueAtEpochMs: Long?,
+    val sourceMonitorId: String? = null,
+)
+
+data class TrustCenterConfig(
+    val organizationId: String,
+    val publicTitle: String,
+    val securityContactEmail: String,
+    val ndaRequired: Boolean,
+    val showComplianceScores: Boolean,
+    val showControlMonitors: Boolean,
+    val showEthioCertStatus: Boolean,
+    val showSubprocessors: Boolean,
+    val subprocessors: List<String>,
+    val lastPublishedAtEpochMs: Long?,
+    val publishedSha256: String?,
+)
+
+data class AwarenessCampaign(
+    val id: String,
+    val titleEn: String,
+    val titleAm: String,
+    val targetGroup: String,
+    val sentCount: Int,
+    val reportedCount: Int,
+    val clickedCount: Int,
+    val createdAtEpochMs: Long,
+)
+

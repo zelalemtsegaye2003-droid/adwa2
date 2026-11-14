@@ -20,12 +20,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.AwarenessModulesData
 import com.example.data.AwarenessToolsData
 import com.example.domain.AwarenessEngine
+import com.example.domain.EnterpriseEngines
 import com.example.i18n.AppStrings
 import com.example.model.Lang
 import com.example.ui.components.GainHistogramChart
 import com.example.ui.components.KpiCard
 import com.example.ui.components.SectionHeader
 import com.example.ui.components.StatusPill
+import com.example.ui.components.formatDateTime
 import com.example.viewmodel.AdwaViewModel
 import com.example.viewmodel.Screen
 
@@ -35,8 +37,17 @@ fun AwarenessAdminScreen(vm: AdwaViewModel) {
     val data by vm.dataState.collectAsStateWithLifecycle()
     val lang = ui.lang
 
-    var tab by remember { mutableIntStateOf(0) } // 0=RQ2 Stats, 1=Schools & Classes, 2=Consent, 3=Curriculum
+    var tab by remember { mutableIntStateOf(0) } // 0=RQ2 Stats & HRS, 1=Schools & Classes, 2=Consent, 3=Curriculum
     var showAddClass by remember { mutableStateOf(false) }
+    var showCampaignDialog by remember { mutableStateOf(false) }
+
+    val hrs = remember(data.awarenessLearners, data.awarenessCampaigns) {
+        EnterpriseEngines.computeHumanRisk(
+            data.awarenessLearners,
+            data.awarenessCampaigns,
+            AwarenessModulesData.MODULES.size,
+        )
+    }
 
     val classById = remember(data.awarenessClasses) { data.awarenessClasses.associateBy { it.id } }
     val schoolById = remember(data.awarenessSchools) { data.awarenessSchools.associateBy { it.id } }
@@ -87,7 +98,7 @@ fun AwarenessAdminScreen(vm: AdwaViewModel) {
                 },
             )
             ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("RQ2 Evaluation") }, modifier = Modifier.testTag("aw_tab_rq2"))
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("HRS & RQ2") }, modifier = Modifier.testTag("aw_tab_rq2"))
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Schools (${data.awarenessSchools.size})") }, modifier = Modifier.testTag("aw_tab_schools"))
                 Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Consent (${data.awarenessLearners.size})") }, modifier = Modifier.testTag("aw_tab_consent"))
                 Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Curriculum (${AwarenessModulesData.MODULES.size})") }, modifier = Modifier.testTag("aw_tab_curriculum"))
@@ -100,6 +111,82 @@ fun AwarenessAdminScreen(vm: AdwaViewModel) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
+                // KnowBe4-style Human Risk Score Hero Card
+                item {
+                    val isElevated = hrs.overallRiskScore >= 55
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isElevated) {
+                                MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
+                            } else {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            },
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isElevated) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("aw_hrs_card"),
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    StatusPill(
+                                        if (lang == Lang.EN) hrs.bandEn.uppercase() else hrs.bandAm,
+                                        if (isElevated) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                                        if (isElevated) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                    Text(
+                                        AppStrings.pick(
+                                            lang,
+                                            "Human Risk Score (HRS): ${hrs.overallRiskScore}/100",
+                                            "የሰው ኃይል ስጋት ውጤት (HRS): ${hrs.overallRiskScore}/100",
+                                        ),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(
+                                        "Phish click ${hrs.phishClickRatePct}% · Report rate ${hrs.reportRatePct}% · ${hrs.highRiskLearners} high-risk learners",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                Button(
+                                    onClick = { showCampaignDialog = true },
+                                    modifier = Modifier.heightIn(min = 48.dp).testTag("aw_launch_campaign_button"),
+                                ) {
+                                    Icon(Icons.Default.Phishing, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(AppStrings.pick(lang, "Launch Drill", "ሙከራ ላክ"))
+                                }
+                            }
+                            if (data.awarenessCampaigns.isNotEmpty()) {
+                                HorizontalDivider()
+                                Text(
+                                    AppStrings.pick(lang, "Phishing & Awareness Campaigns", "የPhishing ዘመቻዎች"),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                data.awarenessCampaigns.take(4).forEach { camp ->
+                                    Row(
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(if (lang == Lang.EN) camp.titleEn else camp.titleAm, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                                            Text("${camp.targetGroup} · ${formatDateTime(camp.createdAtEpochMs)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Text(
+                                            "Sent ${camp.sentCount} · Rep ${camp.reportedCount} · Click ${camp.clickedCount}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         KpiCard("Paired Learners", "${allPairs.size}", "${tPairs.size} Treatment · ${cPairs.size} Control", Icons.Default.Groups, modifier = Modifier.weight(1f))
@@ -298,4 +385,78 @@ fun AwarenessAdminScreen(vm: AdwaViewModel) {
             dismissButton = { TextButton(onClick = { showAddClass = false }) { Text("Cancel") } },
         )
     }
+
+    if (showCampaignDialog) {
+        var title by remember { mutableStateOf("Q2 NBE Executive BEC Simulation") }
+        var targetGroup by remember { mutableStateOf("Banking Staff") }
+        var sentCount by remember { mutableStateOf("120") }
+        var reportedCount by remember { mutableStateOf("54") }
+        var clickedCount by remember { mutableStateOf("11") }
+
+        AlertDialog(
+            onDismissRequest = { showCampaignDialog = false },
+            title = { Text(AppStrings.pick(lang, "Launch Phishing Drill Campaign", "የPhishing ሙከራ ዘመቻ ያስጀምሩ")) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Campaign Title") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("campaign_title_input"),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                        listOf("Banking Staff", "IT & SOC Admins", "Pilot Schools", "Finance Ops").forEach { grp ->
+                            FilterChip(selected = targetGroup == grp, onClick = { targetGroup = grp }, label = { Text(grp) })
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = sentCount,
+                            onValueChange = { sentCount = it.filter(Char::isDigit) },
+                            label = { Text("Sent") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = reportedCount,
+                            onValueChange = { reportedCount = it.filter(Char::isDigit) },
+                            label = { Text("Reported") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedTextField(
+                            value = clickedCount,
+                            onValueChange = { clickedCount = it.filter(Char::isDigit) },
+                            label = { Text("Clicked") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = title.isNotBlank(),
+                    onClick = {
+                        vm.launchPhishingCampaign(
+                            titleEn = title,
+                            targetGroup = targetGroup,
+                            sentCount = (sentCount.toIntOrNull() ?: 100).coerceAtLeast(1),
+                            reportedCount = (reportedCount.toIntOrNull() ?: 0).coerceAtLeast(0),
+                            clickedCount = (clickedCount.toIntOrNull() ?: 0).coerceAtLeast(0),
+                        )
+                        showCampaignDialog = false
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("campaign_submit_button"),
+                ) { Text("Launch") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCampaignDialog = false }, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
 }
+

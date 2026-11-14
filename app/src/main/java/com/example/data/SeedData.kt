@@ -25,6 +25,13 @@ data class AdwaState(
     val acfsItems: List<AcfsGateItem>,
     val acfsDecisions: List<AcfsGateDecision>,
     val ciiOperators: List<CiiOperator>,
+    val controlMonitors: List<ControlMonitor> = emptyList(),
+    val monitorRuns: List<MonitorCheckRun> = emptyList(),
+    val riskRegister: List<RiskRegisterEntry> = emptyList(),
+    val trustCenter: TrustCenterConfig? = null,
+    val awarenessCampaigns: List<AwarenessCampaign> = emptyList(),
+    val incidentPlaybookChecks: Map<String, List<String>> = emptyMap(),
+    val incidentAiNotes: Map<String, String> = emptyMap(),
 )
 
 object SeedData {
@@ -858,6 +865,176 @@ object SeedData {
             ),
         )
 
+        val controlMonitors = listOf(
+            ControlMonitor(
+                id = "mon_dev_lock", code = "MON-DEV-LOCK",
+                titleEn = "Device Screen Lock & Biometric Gate",
+                titleAm = "የስልክ መቆለፊያ እና ባዮሜትሪክ ጥበቃ",
+                category = "DEVICE", sourceType = "DEVICE_API",
+                targetHint = "KeyguardManager.isDeviceSecure",
+                mappedRuleCodes = listOf("PD-1321-A19-01", "NBE-IT-02"),
+                status = "UNVERIFIED",
+                detail = "Tap Run Sweep to inspect live Android lock screen state.",
+                lastCheckedAtEpochMs = null,
+            ),
+            ControlMonitor(
+                id = "mon_dev_ks", code = "MON-DEV-KEYSTORE",
+                titleEn = "Hardware-Backed Keystore (TEE / StrongBox)",
+                titleAm = "ሃርድዌር የተደገፈ KeyStore ምስጠራ",
+                category = "DEVICE", sourceType = "DEVICE_API",
+                targetHint = "AndroidKeyStore KeyInfo",
+                mappedRuleCodes = listOf("PD-1321-A19-03", "NBE-IT-09"),
+                status = "UNVERIFIED",
+                detail = "Tap Run Sweep to probe cryptographic hardware protection.",
+                lastCheckedAtEpochMs = null,
+            ),
+            ControlMonitor(
+                id = "mon_dev_build", code = "MON-DEV-BUILD",
+                titleEn = "Application Backup & Debug Hardening",
+                titleAm = "የመተግበሪያ Backup እና Debug ጥበቃ",
+                category = "DEVICE", sourceType = "DEVICE_API",
+                targetHint = "ApplicationInfo Flags",
+                mappedRuleCodes = listOf("PD-1321-A19-02", "NBE-IT-10"),
+                status = "UNVERIFIED",
+                detail = "Tap Run Sweep to audit allowBackup and debuggable posture.",
+                lastCheckedAtEpochMs = null,
+            ),
+            ControlMonitor(
+                id = "mon_net_vpn", code = "MON-NET-TRANSPORT",
+                titleEn = "Validated Transport, VPN & Private DNS",
+                titleAm = "የተረጋገጠ ኔትወርክ፣ VPN እና Private DNS",
+                category = "TRANSPORT", sourceType = "DEVICE_API",
+                targetHint = "ConnectivityManager & LinkProperties",
+                mappedRuleCodes = listOf("PD-1321-A19-04", "NBE-IT-11"),
+                status = "UNVERIFIED",
+                detail = "Tap Run Sweep to verify active transport security.",
+                lastCheckedAtEpochMs = null,
+            ),
+            ControlMonitor(
+                id = "mon_tls_web", code = "MON-TLS-ENDPOINT",
+                titleEn = "Live HTTPS/TLS Handshake, Cert & HSTS Probe",
+                titleAm = "የቀጥታ HTTPS/TLS ሰርተፊኬት እና HSTS ፍተሻ",
+                category = "TRANSPORT", sourceType = "LIVE_TLS_PROBE",
+                targetHint = "https://www.ethio-cert.gov.et",
+                mappedRuleCodes = listOf("PD-1321-A19-03", "NBE-IT-09"),
+                status = "UNVERIFIED",
+                detail = "Tap Run Sweep to test live TLS cipher, X.509 expiry & HSTS.",
+                lastCheckedAtEpochMs = null,
+            ),
+            ControlMonitor(
+                id = "mon_iam_mfa", code = "MON-IAM-MFA",
+                titleEn = "Privileged Operator MFA Enforcement",
+                titleAm = "የአስተዳዳሪዎች MFA ተግባራዊነት",
+                category = "IDENTITY", sourceType = "LOCAL_AUDIT",
+                targetHint = "Super Admin / Org Admin Accounts",
+                mappedRuleCodes = listOf("PD-1321-A19-01", "NBE-IT-01"),
+                status = "UNVERIFIED",
+                detail = "Audits active privileged user TOTP enrollment across workspaces.",
+                lastCheckedAtEpochMs = null,
+            ),
+            ControlMonitor(
+                id = "mon_evid_fresh", code = "MON-EVID-FRESH",
+                titleEn = "Evidence Vault Freshness SLA",
+                titleAm = "የማስረጃ ማኅደር ወቅታዊነት SLA",
+                category = "EVIDENCE", sourceType = "LOCAL_AUDIT",
+                targetHint = "Active SHA-256 Sealed Artefacts",
+                mappedRuleCodes = listOf("PD-1321-A20-01", "NBE-IT-18"),
+                status = "UNVERIFIED",
+                detail = "Checks active evidence freshness against category expiration windows.",
+                lastCheckedAtEpochMs = null,
+            ),
+        )
+
+        val riskRegister = listOf(
+            RiskRegisterEntry(
+                id = "risk_1", code = "RSK-2026-01",
+                titleEn = "Cross-Border Cloud Transfer Missing Art. 22 DPIA",
+                titleAm = "ድንበር ተሻጋሪ የውሂብ ዝውውር የአንቀጽ 22 DPIA እጥረት",
+                description = "Payment analytics exports require formal Ethiopian Data Protection Commission adequacy sign-off and contractual safeguards.",
+                frameworks = listOf("PD-1321", "ACFS"),
+                linkedRuleCodes = listOf("PD-1321-A22-01", "PD-1321-A22-02"),
+                likelihood = 4, impact = 5, residualScore = 20,
+                treatment = "MITIGATE", status = "OPEN",
+                ownerName = "Selamawit Bekele", dueAtEpochMs = nowMs + 14 * DAY_MS,
+            ),
+            RiskRegisterEntry(
+                id = "risk_2", code = "RSK-2026-02",
+                titleEn = "Overdue NBE-IT Privileged Access Recertification",
+                titleAm = "ጊዜው ያለፈበት የNBE-IT ልዩ መዳረሻ ግምገማ",
+                description = "Quarterly privileged access reviews and mandatory admin TOTP enrollment incomplete across subsidiary portals.",
+                frameworks = listOf("PD-1321", "NBE-IT"),
+                linkedRuleCodes = listOf("NBE-IT-01", "PD-1321-A19-01"),
+                likelihood = 3, impact = 5, residualScore = 15,
+                treatment = "MITIGATE", status = "IN_PROGRESS",
+                ownerName = "Dawit Tadesse", dueAtEpochMs = nowMs + 7 * DAY_MS,
+            ),
+            RiskRegisterEntry(
+                id = "risk_3", code = "RSK-2026-03",
+                titleEn = "72-Hour Breach Notification Playbook Automation Gap",
+                titleAm = "የ72 ሰዓት የጥሰት ማሳወቂያ ዝግጁነት ክፍተት",
+                description = "Incident notification workflow relies on manual escalation for secondary microfinance branches.",
+                frameworks = listOf("PD-1321", "NBE-IT", "Procl. 1426/2026"),
+                linkedRuleCodes = listOf("PD-1321-A21-01", "NBE-IT-14"),
+                likelihood = 3, impact = 4, residualScore = 12,
+                treatment = "MITIGATE", status = "OPEN",
+                ownerName = "Hanna Girma", dueAtEpochMs = nowMs + 21 * DAY_MS,
+            ),
+            RiskRegisterEntry(
+                id = "risk_4", code = "RSK-2026-04",
+                titleEn = "Legacy TLS / Missing HSTS on Branch Portal Endpoints",
+                titleAm = "በቅርንጫፍ አገልግሎቶች ላይ የTLS/HSTS ማስተካከያ",
+                description = "Customer-facing portals require enforced TLS 1.3 cipher suites and HSTS headers.",
+                frameworks = listOf("NBE-IT", "PD-1321"),
+                linkedRuleCodes = listOf("NBE-IT-09", "PD-1321-A19-03"),
+                likelihood = 2, impact = 4, residualScore = 8,
+                treatment = "MITIGATE", status = "MITIGATED",
+                ownerName = "Yonas Hailu", dueAtEpochMs = nowMs - 3 * DAY_MS,
+            ),
+        )
+
+        val trustCenter = TrustCenterConfig(
+            organizationId = "org_cbe",
+            publicTitle = "Adwa Trust & Assurance Portal — Ethiopia FinTech & CII",
+            securityContactEmail = "trust@adwacyber.et",
+            ndaRequired = false,
+            showComplianceScores = true,
+            showControlMonitors = true,
+            showEthioCertStatus = true,
+            showSubprocessors = true,
+            subprocessors = listOf(
+                "Ethio Telecom Sovereign Cloud (Addis Ababa Tier-III)",
+                "Ethio-CERT Threat Sharing Hub (TLP:GREEN/AMBER)",
+                "Adwa Cyber SHA-256 Evidence Vault",
+                "Firebase AI Logic Compliance Advisor (No Customer PII)",
+            ),
+            lastPublishedAtEpochMs = nowMs - 2 * DAY_MS,
+            publishedSha256 = RulesEngine.sha256Hex("adwa-trust-snapshot-v1".toByteArray()),
+        )
+
+        val awarenessCampaigns = listOf(
+            AwarenessCampaign(
+                id = "camp_1",
+                titleEn = "CBE / Mobile Money SMS Phishing Drill (Q1)",
+                titleAm = "የሞባይል ባንክ SMS ማጭበርበር ልምምድ (Q1)",
+                targetGroup = "TREATMENT · Pilot Schools & Staff",
+                sentCount = 120, reportedCount = 54, clickedCount = 11,
+                createdAtEpochMs = nowMs - 9 * DAY_MS,
+            ),
+            AwarenessCampaign(
+                id = "camp_2",
+                titleEn = "Fayda ID & OTP Social Engineering Simulation",
+                titleAm = "የፋይዳ መታወቂያ እና OTP ማታለያ ሙከራ",
+                targetGroup = "ALL ACTIVE COHORTS",
+                sentCount = 95, reportedCount = 42, clickedCount = 8,
+                createdAtEpochMs = nowMs - 3 * DAY_MS,
+            ),
+        )
+
+        val playbookChecks = mapOf(
+            "inc_1" to listOf("pb_triage", "pb_notify", "pb_contain"),
+            "inc_2" to listOf("pb_triage"),
+        )
+
         return AdwaState(
             organizations = orgs,
             users = users,
@@ -878,6 +1055,13 @@ object SeedData {
             acfsItems = acfsItems,
             acfsDecisions = acfsDecisions,
             ciiOperators = ciiOperators,
+            controlMonitors = controlMonitors,
+            monitorRuns = emptyList(),
+            riskRegister = riskRegister,
+            trustCenter = trustCenter,
+            awarenessCampaigns = awarenessCampaigns,
+            incidentPlaybookChecks = playbookChecks,
+            incidentAiNotes = emptyMap(),
         )
     }
 }
